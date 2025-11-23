@@ -3,21 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Student Hub</title>
+    <title>Student Hub - Collaborate & Study</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    </style>
 </head>
 <body>
-    <div id="app">
-        <div class="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
-            <div class="text-center">
-                <div class="animate-spin rounded-full h-16 w-16 border-b-2 border-indigo-600 mx-auto mb-4"></div>
-                <p class="text-gray-600">Loading...</p>
-            </div>
-        </div>
-    </div>
+    <div id="app"></div>
 
     <script>
         let auth, db;
@@ -27,10 +24,11 @@
         let deadlines = [];
         let posts = [];
         let groups = [];
+        let currentTab = 'deadlines';
 
         window.addEventListener('load', function() {
             if (typeof firebase === 'undefined') {
-                document.getElementById('app').innerHTML = '<div class="min-h-screen flex items-center justify-center"><p class="text-red-600">Firebase failed to load. Please refresh.</p></div>';
+                showError('Firebase failed to load. Please refresh the page.');
                 return;
             }
 
@@ -44,27 +42,42 @@
                 appId: "1:149361370872:web:e3ee75310e59d92f3bbd0d"
             };
 
-            firebase.initializeApp(firebaseConfig);
-            auth = firebase.auth();
-            db = firebase.database();
+            try {
+                firebase.initializeApp(firebaseConfig);
+                auth = firebase.auth();
+                db = firebase.database();
 
-            auth.onAuthStateChanged(function(user) {
-                if (user) {
-                    currentUser = {
-                        id: user.uid,
-                        email: user.email,
-                        name: user.displayName || user.email.split('@')[0]
-                    };
-                    loadUserClasses();
-                } else {
-                    currentUser = null;
-                    currentClass = null;
-                    render();
-                }
-            });
+                auth.onAuthStateChanged(function(user) {
+                    if (user) {
+                        currentUser = {
+                            id: user.uid,
+                            email: user.email,
+                            name: user.displayName || user.email.split('@')[0]
+                        };
+                        loadUserClasses();
+                    } else {
+                        currentUser = null;
+                        currentClass = null;
+                        classes = [];
+                        render();
+                    }
+                });
 
-            render();
+                render();
+            } catch (error) {
+                showError('Failed to initialize: ' + error.message);
+            }
         });
+
+        function showError(message) {
+            document.getElementById('app').innerHTML = 
+                '<div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">' +
+                '<div class="bg-white rounded-2xl shadow-xl p-8 max-w-md text-center">' +
+                '<h2 class="text-2xl font-bold text-red-600 mb-4">Error</h2>' +
+                '<p class="text-gray-600 mb-4">' + message + '</p>' +
+                '<button onclick="location.reload()" class="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Refresh</button>' +
+                '</div></div>';
+        }
 
         function loadUserClasses() {
             db.ref('users/' + currentUser.id + '/classes').on('value', function(snapshot) {
@@ -92,6 +105,15 @@
         }
 
         function handleSignup(name, email, password) {
+            if (!email || !password) {
+                alert('Please fill in all fields');
+                return;
+            }
+            if (password.length < 6) {
+                alert('Password must be at least 6 characters');
+                return;
+            }
+
             auth.createUserWithEmailAndPassword(email, password)
                 .then(function(userCredential) {
                     if (name) {
@@ -99,7 +121,7 @@
                     }
                 })
                 .then(function() {
-                    alert('Account created!');
+                    alert('Account created successfully!');
                 })
                 .catch(function(error) {
                     alert('Error: ' + error.message);
@@ -107,6 +129,11 @@
         }
 
         function handleLogin(email, password) {
+            if (!email || !password) {
+                alert('Please fill in all fields');
+                return;
+            }
+
             auth.signInWithEmailAndPassword(email, password)
                 .catch(function(error) {
                     alert('Error: ' + error.message);
@@ -114,14 +141,24 @@
         }
 
         function handleLogout() {
-            auth.signOut();
-            currentClass = null;
+            auth.signOut().then(function() {
+                currentClass = null;
+                classes = [];
+                deadlines = [];
+                posts = [];
+                groups = [];
+            });
         }
 
         function createClass(name) {
+            if (!name || !name.trim()) {
+                alert('Please enter a class name');
+                return;
+            }
+
             var newClass = {
                 id: Date.now().toString(),
-                name: name,
+                name: name.trim(),
                 inviteCode: Math.random().toString(36).substring(2, 8).toUpperCase(),
                 createdBy: currentUser.id,
                 createdAt: Date.now()
@@ -132,50 +169,84 @@
             
             currentClass = newClass;
             loadClassData(newClass.id);
+            closeModals();
             render();
         }
 
-        function selectClass(cls) {
-            currentClass = cls;
-            loadClassData(cls.id);
+        function selectClass(clsString) {
+            currentClass = JSON.parse(clsString);
+            currentTab = 'deadlines';
+            loadClassData(currentClass.id);
             render();
         }
 
         function addDeadline(title, date, subject) {
+            if (!title || !date) {
+                alert('Please fill in title and date');
+                return;
+            }
+
             var deadline = {
                 id: Date.now().toString(),
                 title: title,
                 date: date,
-                subject: subject,
+                subject: subject || '',
                 createdBy: currentUser.id,
                 createdAt: Date.now()
             };
-            db.ref('classes/' + currentClass.id + '/deadlines/' + deadline.id).set(deadline);
+            
+            db.ref('classes/' + currentClass.id + '/deadlines/' + deadline.id).set(deadline)
+                .then(function() {
+                    document.getElementById('deadline-title').value = '';
+                    document.getElementById('deadline-date').value = '';
+                    document.getElementById('deadline-subject').value = '';
+                });
         }
 
         function addPost(title, description) {
+            if (!title) {
+                alert('Please enter a title');
+                return;
+            }
+
             var post = {
                 id: Date.now().toString(),
                 title: title,
-                description: description,
+                description: description || '',
                 author: currentUser.name,
                 authorId: currentUser.id,
                 timestamp: Date.now()
             };
-            db.ref('classes/' + currentClass.id + '/posts/' + post.id).set(post);
+            
+            db.ref('classes/' + currentClass.id + '/posts/' + post.id).set(post)
+                .then(function() {
+                    document.getElementById('post-title').value = '';
+                    document.getElementById('post-description').value = '';
+                });
         }
 
         function addGroup(name, time, members) {
+            if (!name) {
+                alert('Please enter a group name');
+                return;
+            }
+
             var group = {
                 id: Date.now().toString(),
                 name: name,
-                time: time,
-                members: members,
+                time: time || '',
+                members: members || '',
                 creator: currentUser.name,
                 creatorId: currentUser.id,
                 createdAt: Date.now()
             };
-            db.ref('classes/' + currentClass.id + '/groups/' + group.id).set(group);
+            
+            db.ref('classes/' + currentClass.id + '/groups/' + group.id).set(group)
+                .then(function() {
+                    document.getElementById('group-name').value = '';
+                    document.getElementById('group-time').value = '';
+                    document.getElementById('group-members').value = '';
+                });
         }
 
         function render() {
@@ -203,22 +274,20 @@
                 '<p class="text-gray-600 mt-2">Collaborate, study, and succeed together</p>' +
                 '</div>' +
                 '<div class="flex gap-2 mb-6">' +
-                '<button onclick="showLogin()" id="login-tab" class="flex-1 py-2 rounded-lg font-medium bg-indigo-600 text-white">Login</button>' +
-                '<button onclick="showSignup()" id="signup-tab" class="flex-1 py-2 rounded-lg font-medium bg-gray-100 text-gray-600">Sign Up</button>' +
+                '<button onclick="showLogin()" id="login-tab" class="flex-1 py-2 rounded-lg font-medium transition bg-indigo-600 text-white">Login</button>' +
+                '<button onclick="showSignup()" id="signup-tab" class="flex-1 py-2 rounded-lg font-medium transition bg-gray-100 text-gray-600">Sign Up</button>' +
                 '</div>' +
-                '<div id="login-form">' +
-                '<div class="space-y-4">' +
-                '<input type="email" id="login-email" placeholder="Email" class="w-full px-4 py-3 border border-gray-300 rounded-lg">' +
-                '<input type="password" id="login-password" placeholder="Password" class="w-full px-4 py-3 border border-gray-300 rounded-lg">' +
-                '<button onclick="submitLogin()" class="w-full bg-indigo-600 text-white py-3 rounded-lg font-medium hover:bg-indigo-700">Login</button>' +
-                '</div></div>' +
-                '<div id="signup-form" style="display:none;">' +
-                '<div class="space-y-4">' +
-                '<input type="text" id="signup-name" placeholder="Full Name" class="w-full px-4 py-3 border border-gray-300 rounded-lg">' +
-                '<input type="email" id="signup-email" placeholder="Email" class="w-full px-4 py-3 border border-gray-300 rounded-lg">' +
-                '<input type="password" id="signup-password" placeholder="Password" class="w-full px-4 py-3 border border-gray-300 rounded-lg">' +
-                '<button onclick="submitSignup()" class="w-full bg-indigo-600 text-white py-3 rounded-lg font-medium hover:bg-indigo-700">Sign Up</button>' +
-                '</div></div>' +
+                '<div id="login-form" class="space-y-4">' +
+                '<input type="email" id="login-email" placeholder="Email" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-600 focus:border-transparent">' +
+                '<input type="password" id="login-password" placeholder="Password" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-600 focus:border-transparent">' +
+                '<button onclick="submitLogin()" class="w-full bg-indigo-600 text-white py-3 rounded-lg font-medium hover:bg-indigo-700 transition">Login</button>' +
+                '</div>' +
+                '<div id="signup-form" class="space-y-4" style="display:none;">' +
+                '<input type="text" id="signup-name" placeholder="Full Name" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-600 focus:border-transparent">' +
+                '<input type="email" id="signup-email" placeholder="Email" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-600 focus:border-transparent">' +
+                '<input type="password" id="signup-password" placeholder="Password (min 6 characters)" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-600 focus:border-transparent">' +
+                '<button onclick="submitSignup()" class="w-full bg-indigo-600 text-white py-3 rounded-lg font-medium hover:bg-indigo-700 transition">Sign Up</button>' +
+                '</div>' +
                 '<p class="text-xs text-gray-500 text-center mt-6">🔥 Powered by Firebase</p>' +
                 '</div></div>';
         }
@@ -226,12 +295,15 @@
         function renderClassSelection() {
             var classesHTML = '';
             if (classes.length > 0) {
-                classesHTML = '<div><h2 class="text-xl font-semibold text-gray-800 mb-4">Your Classes</h2><div class="grid md:grid-cols-3 gap-4">';
-                classes.forEach(function(cls) {
-                    classesHTML += '<button onclick=\'selectClass(' + JSON.stringify(cls) + ')\' class="bg-white rounded-xl p-6 shadow-md hover:shadow-lg transition text-left">' +
+                classesHTML = '<div class="mt-6"><h2 class="text-xl font-semibold text-gray-800 mb-4">Your Classes</h2><div class="grid md:grid-cols-3 gap-4">';
+                for (var i = 0; i < classes.length; i++) {
+                    var cls = classes[i];
+                    var clsJson = JSON.stringify(cls).replace(/"/g, '&quot;');
+                    classesHTML += '<button onclick="selectClass(\'' + clsJson + '\')" class="bg-white rounded-xl p-6 shadow-md hover:shadow-lg transition text-left">' +
                         '<h3 class="text-lg font-semibold text-gray-800">' + cls.name + '</h3>' +
-                        '<p class="text-sm text-gray-600 mt-2">Code: ' + cls.inviteCode + '</p></button>';
-                });
+                        '<p class="text-sm text-gray-600 mt-2">Code: ' + cls.inviteCode + '</p>' +
+                        '</button>';
+                }
                 classesHTML += '</div></div>';
             }
 
@@ -240,13 +312,26 @@
                 '<div class="flex justify-between items-center mb-8">' +
                 '<div><h1 class="text-3xl font-bold text-gray-800">Welcome, ' + currentUser.name + '!</h1>' +
                 '<p class="text-gray-600 mt-1">Select a class or create a new one</p></div>' +
-                '<button onclick="handleLogout()" class="px-4 py-2 text-gray-600 hover:text-gray-800">Logout</button>' +
+                '<button onclick="handleLogout()" class="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-800 transition">' +
+                '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+                '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>' +
+                '</svg>Logout</button>' +
                 '</div>' +
                 '<div class="grid md:grid-cols-2 gap-4 mb-6">' +
-                '<button onclick="showCreateClassModal()" class="bg-white rounded-xl p-6 shadow-md hover:shadow-lg transition border-2 border-dashed border-indigo-300">' +
-                '<p class="text-4xl mb-3">➕</p><h3 class="text-xl font-semibold text-gray-800">Create New Class</h3></button>' +
-                '<button onclick="alert(\'Join feature coming soon!\')" class="bg-white rounded-xl p-6 shadow-md hover:shadow-lg transition border-2 border-gray-200">' +
-                '<p class="text-4xl mb-3">✉️</p><h3 class="text-xl font-semibold text-gray-800">Join with Code</h3></button>' +
+                '<button onclick="showCreateClassModal()" class="bg-white rounded-xl p-6 shadow-md hover:shadow-lg transition border-2 border-dashed border-indigo-300 hover:border-indigo-500">' +
+                '<svg class="mx-auto mb-3 text-indigo-600" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+                '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>' +
+                '</svg>' +
+                '<h3 class="text-xl font-semibold text-gray-800">Create New Class</h3>' +
+                '<p class="text-gray-600 text-sm mt-2">Start a new class and invite students</p>' +
+                '</button>' +
+                '<button onclick="alert(\'Join with code feature coming soon!\')" class="bg-white rounded-xl p-6 shadow-md hover:shadow-lg transition border-2 border-gray-200 hover:border-indigo-500">' +
+                '<svg class="mx-auto mb-3 text-indigo-600" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+                '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>' +
+                '</svg>' +
+                '<h3 class="text-xl font-semibold text-gray-800">Join with Code</h3>' +
+                '<p class="text-gray-600 text-sm mt-2">Enter an invite code to join a class</p>' +
+                '</button>' +
                 '</div>' + classesHTML +
                 '</div></div>';
         }
@@ -256,20 +341,36 @@
                 '<div class="w-64 bg-white border-r border-gray-200 flex flex-col">' +
                 '<div class="p-6 border-b border-gray-200">' +
                 '<h2 class="text-2xl font-bold text-indigo-600">' + currentClass.name + '</h2>' +
-                '<p class="text-sm text-gray-600 mt-1">' + currentUser.name + '</p></div>' +
+                '<p class="text-sm text-gray-600 mt-1">' + currentUser.name + '</p>' +
+                '</div>' +
                 '<nav class="flex-1 p-4">' +
-                '<button onclick="showTab(\'deadlines\')" id="tab-deadlines" class="w-full px-4 py-3 rounded-lg mb-2 bg-indigo-50 text-indigo-600 text-left">📅 Deadlines</button>' +
-                '<button onclick="showTab(\'homework\')" id="tab-homework" class="w-full px-4 py-3 rounded-lg mb-2 text-gray-700 hover:bg-gray-50 text-left">💬 Homework Help</button>' +
-                '<button onclick="showTab(\'groups\')" id="tab-groups" class="w-full px-4 py-3 rounded-lg mb-2 text-gray-700 hover:bg-gray-50 text-left">👥 Study Groups</button>' +
+                '<button onclick="showTab(\'deadlines\')" id="tab-deadlines" class="w-full flex items-center gap-3 px-4 py-3 rounded-lg mb-2 transition ' + 
+                (currentTab === 'deadlines' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-700 hover:bg-gray-50') + '">' +
+                '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+                '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>' +
+                '</svg><span class="font-medium">Deadlines</span></button>' +
+                '<button onclick="showTab(\'homework\')" id="tab-homework" class="w-full flex items-center gap-3 px-4 py-3 rounded-lg mb-2 transition ' +
+                (currentTab === 'homework' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-700 hover:bg-gray-50') + '">' +
+                '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+                '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>' +
+                '</svg><span class="font-medium">Homework Help</span></button>' +
+                '<button onclick="showTab(\'groups\')" id="tab-groups" class="w-full flex items-center gap-3 px-4 py-3 rounded-lg mb-2 transition ' +
+                (currentTab === 'groups' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-700 hover:bg-gray-50') + '">' +
+                '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+                '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>' +
+                '</svg><span class="font-medium">Study Groups</span></button>' +
                 '</nav>' +
-                '<div class="p-4 border-t border-gray-200">' +
-                '<button onclick="showInviteModal()" class="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg mb-2">Invite</button>' +
-                '<button onclick="currentClass = null; render()" class="w-full px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Change Class</button>' +
+                '<div class="p-4 border-t border-gray-200 space-y-2">' +
+                '<button onclick="showInviteModal()" class="w-full flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition">' +
+                '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+                '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>' +
+                '</svg>Invite Students</button>' +
+                '<button onclick="currentClass = null; currentTab = \'deadlines\'; render()" class="w-full px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition">Change Class</button>' +
                 '</div></div>' +
                 '<div class="flex-1 p-8 overflow-y-auto">' +
-                '<div id="tab-content-deadlines">' + renderDeadlines() + '</div>' +
-                '<div id="tab-content-homework" style="display:none;">' + renderHomework() + '</div>' +
-                '<div id="tab-content-groups" style="display:none;">' + renderGroups() + '</div>' +
+                '<div id="tab-content-deadlines" style="display:' + (currentTab === 'deadlines' ? 'block' : 'none') + '">' + renderDeadlines() + '</div>' +
+                '<div id="tab-content-homework" style="display:' + (currentTab === 'homework' ? 'block' : 'none') + '">' + renderHomework() + '</div>' +
+                '<div id="tab-content-groups" style="display:' + (currentTab === 'groups' ? 'block' : 'none') + '">' + renderGroups() + '</div>' +
                 '</div></div>' +
                 '<div id="modal-overlay" style="display:none;" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" onclick="closeModals()">' +
                 '<div onclick="event.stopPropagation()" class="bg-white rounded-2xl p-6 w-full max-w-md" id="modal-content"></div></div>';
@@ -280,21 +381,24 @@
                 '<div class="bg-white rounded-xl shadow-md p-6 mb-6">' +
                 '<h2 class="text-xl font-semibold text-gray-800 mb-4">Add New Deadline</h2>' +
                 '<div class="grid md:grid-cols-3 gap-4">' +
-                '<input type="text" id="deadline-title" placeholder="Assignment title" class="px-4 py-2 border rounded-lg">' +
-                '<input type="date" id="deadline-date" class="px-4 py-2 border rounded-lg">' +
-                '<input type="text" id="deadline-subject" placeholder="Subject" class="px-4 py-2 border rounded-lg">' +
-                '<button onclick="submitDeadline()" class="md:col-span-3 bg-indigo-600 text-white py-2 rounded-lg">Add</button>' +
+                '<input type="text" id="deadline-title" placeholder="Assignment title" class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-600 focus:border-transparent">' +
+                '<input type="date" id="deadline-date" class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-600 focus:border-transparent">' +
+                '<input type="text" id="deadline-subject" placeholder="Subject (optional)" class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-600 focus:border-transparent">' +
+                '<button onclick="submitDeadline()" class="md:col-span-3 bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition">Add Deadline</button>' +
                 '</div></div><div class="space-y-4">';
 
             if (deadlines.length === 0) {
-                html += '<p class="text-gray-600 text-center py-8">No deadlines yet</p>';
+                html += '<p class="text-gray-600 text-center py-8">No deadlines yet. Add one above!</p>';
             } else {
-                deadlines.forEach(function(d) {
+                for (var i = 0; i < deadlines.length; i++) {
+                    var d = deadlines[i];
                     html += '<div class="bg-white rounded-lg shadow-md p-6">' +
-                        '<div class="flex justify-between"><div><h3 class="text-lg font-semibold">' + d.title + '</h3>' +
-                        (d.subject ? '<span class="inline-block mt-2 px-3 py-1 bg-indigo-100 text-indigo-700 text-sm rounded-full">' + d.subject + '</span>' : '') +
-                        '</div><div class="text-right"><p class="text-sm text-gray-600">Due Date</p><p class="text-lg font-semibold">' + d.date + '</p></div></div></div>';
-                });
+                        '<div class="flex justify-between items-start"><div><h3 class="text-lg font-semibold text-gray-800">' + d.title + '</h3>';
+                    if (d.subject) {
+                        html += '<span class="inline-block mt-2 px-3 py-1 bg-indigo-100 text-indigo-700 text-sm rounded-full">' + d.subject + '</span>';
+                    }
+                    html += '</div><div class="text-right"><p class="text-sm text-gray-600">Due Date</p><p class="text-lg font-semibold text-gray-800">' + d.date + '</p></div></div></div>';
+                }
             }
             return html + '</div>';
         }
@@ -304,22 +408,28 @@
                 '<div class="bg-white rounded-xl shadow-md p-6 mb-6">' +
                 '<h2 class="text-xl font-semibold text-gray-800 mb-4">Ask for Help</h2>' +
                 '<div class="space-y-4">' +
-                '<input type="text" id="post-title" placeholder="Question title" class="w-full px-4 py-2 border rounded-lg">' +
-                '<textarea id="post-description" placeholder="Describe your question..." rows="4" class="w-full px-4 py-2 border rounded-lg"></textarea>' +
-                '<button onclick="submitPost()" class="bg-indigo-600 text-white px-6 py-2 rounded-lg">Post</button>' +
+                '<input type="text" id="post-title" placeholder="Question title" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-600 focus:border-transparent">' +
+                '<textarea id="post-description" placeholder="Describe your question..." rows="4" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-600 focus:border-transparent"></textarea>' +
+                '<button onclick="submitPost()" class="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 transition">Post Question</button>' +
                 '</div></div><div class="space-y-4">';
 
             if (posts.length === 0) {
-                html += '<p class="text-gray-600 text-center py-8">No questions yet</p>';
+                html += '<p class="text-gray-600 text-center py-8">No questions yet. Be the first to ask!</p>';
             } else {
-                posts.forEach(function(p) {
+                for (var i = 0; i < posts.length; i++) {
+                    var p = posts[i];
                     html += '<div class="bg-white rounded-lg shadow-md p-6">' +
-                        '<div class="flex gap-4"><div class="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center text-white font-semibold">' + p.author[0] + '</div>' +
-                        '<div class="flex-1"><div class="flex gap-2 mb-2"><span class="font-semibold">' + p.author + '</span>' +
+                        '<div class="flex items-start gap-4">' +
+                        '<div class="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center text-white font-semibold flex-shrink-0">' +
+                        p.author.charAt(0).toUpperCase() + '</div>' +
+                        '<div class="flex-1"><div class="flex items-center gap-2 mb-2">' +
+                        '<span class="font-semibold text-gray-800">' + p.author + '</span>' +
                         '<span class="text-sm text-gray-500">' + new Date(p.timestamp).toLocaleDateString() + '</span></div>' +
-                        '<h3 class="text-lg font-semibold mb-2">' + p.title + '</h3>' +
-                        '<p class="text-gray-600">' + p.description + '</p></div></div></div>';
-                });
+                        '<h3 class="text-lg font-semibold text-gray-800 mb-2">' + p.title + '</h3>' +
+                        '<p class="text-gray-600 mb-3">' + (p.description || '') + '</p>' +
+                        '<button class="text-indigo-600 hover:text-indigo-700 text-sm font-medium">Reply</button>' +
+                        '</div></div></div>';
+                }
             }
             return html + '</div>';
         }
@@ -329,37 +439,42 @@
                 '<div class="bg-white rounded-xl shadow-md p-6 mb-6">' +
                 '<h2 class="text-xl font-semibold text-gray-800 mb-4">Create Study Group</h2>' +
                 '<div class="space-y-4">' +
-                '<input type="text" id="group-name" placeholder="Group name" class="w-full px-4 py-2 border rounded-lg">' +
-                '<input type="text" id="group-time" placeholder="Meeting time" class="w-full px-4 py-2 border rounded-lg">' +
-                '<input type="text" id="group-members" placeholder="Max members" class="w-full px-4 py-2 border rounded-lg">' +
-                '<button onclick="submitGroup()" class="bg-indigo-600 text-white px-6 py-2 rounded-lg">Create</button>' +
+                '<input type="text" id="group-name" placeholder="Group name" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-600 focus:border-transparent">' +
+                '<input type="text" id="group-time" placeholder="Meeting time (e.g., Mon/Wed 3pm)" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-600 focus:border-transparent">' +
+                '<input type="text" id="group-members" placeholder="Max members" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-600 focus:border-transparent">' +
+                '<button onclick="submitGroup()" class="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 transition">Create Group</button>' +
                 '</div></div><div class="grid md:grid-cols-2 gap-4">';
 
             if (groups.length === 0) {
-                html += '<p class="text-gray-600 text-center py-8 col-span-2">No groups yet</p>';
+                html += '<p class="text-gray-600 text-center py-8 col-span-2">No study groups yet. Create one above!</p>';
             } else {
-                groups.forEach(function(g) {
+                for (var i = 0; i < groups.length; i++) {
+                    var g = groups[i];
                     html += '<div class="bg-white rounded-lg shadow-md p-6">' +
-                        '<h3 class="text-lg font-semibold mb-2">' + g.name + '</h3>' +
-                        '<p class="text-sm text-gray-600 mb-1">Created by: ' + g.creator + '</p>' +
-                        (g.time ? '<p class="text-sm text-gray-600 mb-1">Meets: ' + g.time + '</p>' : '') +
-                        (g.members ? '<p class="text-sm text-gray-600 mb-4">Max: ' + g.members + '</p>' : '') +
-                        '<button class="w-full bg-indigo-600 text-white py-2 rounded-lg">Join</button></div>';
-                });
+                        '<h3 class="text-lg font-semibold text-gray-800 mb-2">' + g.name + '</h3>' +
+                        '<p class="text-sm text-gray-600 mb-1"><span class="font-medium">Created by:</span> ' + g.creator + '</p>';
+                    if (g.time) {
+                        html += '<p class="text-sm text-gray-600 mb-1"><span class="font-medium">Meets:</span> ' + g.time + '</p>';
+                    }
+                    if (g.members) {
+                        html += '<p class="text-sm text-gray-600 mb-4"><span class="font-medium">Max members:</span> ' + g.members + '</p>';
+                    }
+                    html += '<button class="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition">Join Group</button></div>';
+                }
             }
             return html + '</div>';
         }
 
         function showLogin() {
-            document.getElementById('login-tab').className = 'flex-1 py-2 rounded-lg font-medium bg-indigo-600 text-white';
-            document.getElementById('signup-tab').className = 'flex-1 py-2 rounded-lg font-medium bg-gray-100 text-gray-600';
+            document.getElementById('login-tab').className = 'flex-1 py-2 rounded-lg font-medium transition bg-indigo-600 text-white';
+            document.getElementById('signup-tab').className = 'flex-1 py-2 rounded-lg font-medium transition bg-gray-100 text-gray-600';
             document.getElementById('login-form').style.display = 'block';
             document.getElementById('signup-form').style.display = 'none';
         }
 
         function showSignup() {
-            document.getElementById('signup-tab').className = 'flex-1 py-2 rounded-lg font-medium bg-indigo-600 text-white';
-            document.getElementById('login-tab').className = 'flex-1 py-2 rounded-lg font-medium bg-gray-100 text-gray-600';
+            document.getElementById('signup-tab').className = 'flex-1 py-2 rounded-lg font-medium transition bg-indigo-600 text-white';
+            document.getElementById('login-tab').className = 'flex-1 py-2 rounded-lg font-medium transition bg-gray-100 text-gray-600';
             document.getElementById('signup-form').style.display = 'block';
             document.getElementById('login-form').style.display = 'none';
         }
@@ -380,88 +495,86 @@
         function showCreateClassModal() {
             document.getElementById('modal-overlay').style.display = 'flex';
             document.getElementById('modal-content').innerHTML =
-                '<h2 class="text-2xl font-bold mb-4">Create New Class</h2>' +
-                '<input type="text" id="new-class-name" placeholder="Class Name" class="w-full px-4 py-3 border rounded-lg mb-4">' +
+                '<h2 class="text-2xl font-bold text-gray-800 mb-4">Create New Class</h2>' +
+                '<input type="text" id="new-class-name" placeholder="Class Name (e.g., Math 3A)" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-600 focus:border-transparent mb-4">' +
                 '<div class="flex gap-3">' +
-                '<button onclick="closeModals()" class="flex-1 px-4 py-2 border rounded-lg">Cancel</button>' +
-                '<button onclick="submitCreateClass()" class="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg">Create</button>' +
+                '<button onclick="closeModals()" class="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition">Cancel</button>' +
+                '<button onclick="submitCreateClass()" class="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition">Create</button>' +
                 '</div>';
         }
 
         function submitCreateClass() {
             var name = document.getElementById('new-class-name').value;
-            if (name.trim()) {
-                createClass(name);
-                closeModals();
-            }
+            createClass(name);
         }
 
         function showInviteModal() {
             document.getElementById('modal-overlay').style.display = 'flex';
             document.getElementById('modal-content').innerHTML =
-                '<h2 class="text-2xl font-bold mb-4">Invite Students</h2>' +
-                '<p class="text-gray-600 mb-4">Share this code:</p>' +
+                '<h2 class="text-2xl font-bold text-gray-800 mb-4">Invite Students</h2>' +
+                '<p class="text-gray-600 mb-4">Share this code with students to let them join your class:</p>' +
                 '<div class="bg-indigo-50 rounded-lg p-4 mb-4">' +
-                '<p class="text-center text-3xl font-bold text-indigo-600">' + currentClass.inviteCode + '</p>' +
+                '<p class="text-center text-3xl font-bold text-indigo-600 tracking-wider">' + currentClass.inviteCode + '</p>' +
                 '</div>' +
-                '<button onclick="copyInviteCode()" class="w-full bg-indigo-600 text-white py-3 rounded-lg mb-3">Copy Code</button>' +
-                '<button onclick="closeModals()" class="w-full py-2 text-gray-600">Close</button>';
+                '<button onclick="copyInviteCode()" class="w-full flex items-center justify-center gap-2 bg-indigo-600 text-white py-3 rounded-lg hover:bg-indigo-700 transition mb-3">' +
+                '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+                '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>' +
+                '</svg>Copy Code</button>' +
+                '<button onclick="closeModals()" class="w-full py-2 text-gray-600 hover:text-gray-800 transition">Close</button>';
         }
 
         function copyInviteCode() {
             navigator.clipboard.writeText(currentClass.inviteCode);
-            alert('Code copied!');
+            alert('Code copied to clipboard!');
         }
 
         function closeModals() {
-            document.getElementById('modal-overlay').style.display = 'none';
+            var overlay = document.getElementById('modal-overlay');
+            if (overlay) {
+                overlay.style.display = 'none';
+            }
         }
 
         function showTab(tab) {
-            document.getElementById('tab-content-deadlines').style.display = 'none';
-            document.getElementById('tab-content-homework').style.display = 'none';
-            document.getElementById('tab-content-groups').style.display = 'none';
+            currentTab = tab;
             
-            document.getElementById('tab-deadlines').className = 'w-full px-4 py-3 rounded-lg mb-2 text-gray-700 hover:bg-gray-50 text-left';
-            document.getElementById('tab-homework').className = 'w-full px-4 py-3 rounded-lg mb-2 text-gray-700 hover:bg-gray-50 text-left';
-            document.getElementById('tab-groups').className = 'w-full px-4 py-3 rounded-lg mb-2 text-gray-700 hover:bg-gray-50 text-left';
-            
-            document.getElementById('tab-content-' + tab).style.display = 'block';
-            document.getElementById('tab-' + tab).className = 'w-full px-4 py-3 rounded-lg mb-2 bg-indigo-50 text-indigo-600 text-left';
+            var tabs = ['deadlines', 'homework', 'groups'];
+            for (var i = 0; i < tabs.length; i++) {
+                var content = document.getElementById('tab-content-' + tabs[i]);
+                var button = document.getElementById('tab-' + tabs[i]);
+                
+                if (content) {
+                    content.style.display = tabs[i] === tab ? 'block' : 'none';
+                }
+                
+                if (button) {
+                    if (tabs[i] === tab) {
+                        button.className = 'w-full flex items-center gap-3 px-4 py-3 rounded-lg mb-2 transition bg-indigo-50 text-indigo-600';
+                    } else {
+                        button.className = 'w-full flex items-center gap-3 px-4 py-3 rounded-lg mb-2 transition text-gray-700 hover:bg-gray-50';
+                    }
+                }
+            }
         }
 
         function submitDeadline() {
             var title = document.getElementById('deadline-title').value;
             var date = document.getElementById('deadline-date').value;
             var subject = document.getElementById('deadline-subject').value;
-            if (title && date) {
-                addDeadline(title, date, subject);
-                document.getElementById('deadline-title').value = '';
-                document.getElementById('deadline-date').value = '';
-                document.getElementById('deadline-subject').value = '';
-            }
+            addDeadline(title, date, subject);
         }
 
         function submitPost() {
             var title = document.getElementById('post-title').value;
             var description = document.getElementById('post-description').value;
-            if (title) {
-                addPost(title, description);
-                document.getElementById('post-title').value = '';
-                document.getElementById('post-description').value = '';
-            }
+            addPost(title, description);
         }
 
         function submitGroup() {
             var name = document.getElementById('group-name').value;
             var time = document.getElementById('group-time').value;
             var members = document.getElementById('group-members').value;
-            if (name) {
-                addGroup(name, time, members);
-                document.getElementById('group-name').value = '';
-                document.getElementById('group-time').value = '';
-                document.getElementById('group-members').value = '';
-            }
+            addGroup(name, time, members);
         }
     </script>
 </body>
