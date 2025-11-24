@@ -324,6 +324,12 @@
             }
         }
 
+        function backToClasses() {
+            currentClass = null;
+            currentTab = 'deadlines';
+            render();
+        }
+
         function joinWithCode() {
             var code = prompt('Enter the class invite code:');
             if (!code) return;
@@ -516,6 +522,13 @@
                 overlay.className = 'modal';
             }
         }
+
+        // Close modal when clicking outside
+        document.addEventListener('click', function(e) {
+            if (e.target && e.target.id === 'modal-overlay') {
+                closeModals();
+            }
+        });
 
         function showTab(tab) {
             currentTab = tab;
@@ -878,15 +891,16 @@
                 '</div>' +
                 '<div class="p-2" style="border-top: 1px solid #E5E7EB;">' +
                 '<button onclick="showInviteModal()" class="btn btn-primary" style="width: 100%; margin-bottom: 0.5rem;">✉️ Invite Students</button>' +
-                '<button onclick="currentClass = null; currentTab = \'deadlines\'; render()" class="btn btn-secondary" style="width: 100%;">Change Class</button>' +
+                '<button onclick="backToClasses()" class="btn btn-secondary" style="width: 100%;">Change Class</button>' +
                 '</div></div>' +
                 '<div class="main-content">' +
                 '<div id="tab-content-deadlines" style="display:' + (currentTab === 'deadlines' ? 'block' : 'none') + '">' + renderDeadlines() + '</div>' +
                 '<div id="tab-content-homework" style="display:' + (currentTab === 'homework' ? 'block' : 'none') + '">' + renderHomework() + '</div>' +
                 '<div id="tab-content-groups" style="display:' + (currentTab === 'groups' ? 'block' : 'none') + '">' + renderGroups() + '</div>' +
-                '</div></div>' +
-                '<div id="modal-overlay" class="modal" onclick="closeModals()">' +
-                '<div onclick="event.stopPropagation()" class="modal-content" id="modal-content"></div></div>';
+                '</div>' +
+                '<div id="modal-overlay" class="modal">' +
+                '<div onclick="event.stopPropagation()" class="modal-content" id="modal-content"></div></div>' +
+                '</div>';
         }
 
         function renderDeadlines() {
